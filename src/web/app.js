@@ -6,7 +6,7 @@ const state = {
   sessionId: null,
   readOnly: false,
   view: 'chat',
-  evalRan: false,
+  evalLoaded: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -298,39 +298,153 @@ async function showDetail(id) {
 
 // ---------------- 体检 ----------------
 
-async function runEval() {
-  const btn = $('runEval');
+async function loadEvalPage() {
+  try {
+    const data = await api('/api/eval/latest');
+    renderTrend(data.history || []);
+    renderBaseline(data);
+    if (data.report) renderEval(data.report, data);
+    else $('evalResult').replaceChildren(el('div', 'empty', '还没跑过。点「跑一次体检」。'));
+  } catch (err) {
+    $('evalResult').replaceChildren(el('div', 'empty', `读取失败：${err.message}`));
+  }
+}
+
+async function runEval(asBaseline = false) {
+  const btn = asBaseline ? $('setBaseline') : $('runEval');
+  const label = btn.textContent;
   const mode = $('evalMode').value;
   btn.disabled = true;
-  btn.textContent = '跑着呢…';
-  const box = $('evalResult');
-  box.replaceChildren(el('div', 'empty', mode === 'full' ? '正在生成回答并判分，可能要一两分钟…' : '正在检索全库…'));
+  btn.textContent = asBaseline ? '跑并锁定…' : '跑着呢…';
+  $('evalResult').replaceChildren(
+    el('div', 'empty', mode === 'full' ? '正在生成回答并判分，可能要一两分钟…' : '正在检索全库…')
+  );
   try {
-    const res = await fetch('/api/eval', {
+    const res = await fetch(asBaseline ? '/api/eval/baseline' : '/api/eval', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ mode }),
     });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-    renderEval(body.report, mode);
+    const latest = await api('/api/eval/latest');
+    renderTrend(latest.history || []);
+    renderBaseline(latest);
+    renderEval(latest.report, latest);
   } catch (err) {
-    box.replaceChildren(el('div', 'empty', `失败：${err.message}`));
+    $('evalResult').replaceChildren(el('div', 'empty', `失败：${err.message}`));
   } finally {
     btn.disabled = false;
-    btn.textContent = '跑一次体检';
+    btn.textContent = label;
   }
 }
 
-function renderEval(report, mode) {
+function renderBaseline(data) {
+  const box = $('evalBaseline');
+  box.replaceChildren();
+  if (!data.baseline) {
+    box.append(el('span', 'hint', '还没有基线。跑一次满意的体检，点「跑一次并设为基线」。'));
+    return;
+  }
+  const b = data.baseline;
+  box.append(el('span', 'gate ok', `基线 ${fmtDate(b.at)} · ${b.mode} · ${(b.passRate * 100).toFixed(0)}%`));
+  const diff = data.report?.diff;
+  if (diff?.regressions?.length) {
+    box.append(el('span', 'gate bad', `回归 ${diff.regressions.length} 条：${diff.regressions.map((x) => x.id).join('、')}`));
+  } else if (diff) {
+    box.append(el('span', 'gate ok', '无回归'));
+  }
+}
+
+const SVGNS = 'http://www.w3.org/2000/svg';
+
+function spark(rows, pick, { label, color, fmt }) {
+  const wrap = el('div', 'spark');
+  wrap.append(el('div', 'spark-label', label));
+  const w = 520;
+  const h = 72;
+  const pad = 8;
+  const vals = rows.map(pick);
+  const max = Math.max(...vals, 0.0001);
+  const svg = document.createElementNS(SVGNS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svg.setAttribute('class', 'spark-svg');
+
+  const pts = vals.map((v, i) => {
+    const x = vals.length === 1 ? w / 2 : pad + (i / (vals.length - 1)) * (w - 2 * pad);
+    const y = h - pad - (v / max) * (h - 2 * pad);
+    return [x, y];
+  });
+
+  const base = document.createElementNS(SVGNS, 'line');
+  base.setAttribute('x1', pad);
+  base.setAttribute('x2', w - pad);
+  base.setAttribute('y1', h - pad);
+  base.setAttribute('y2', h - pad);
+  base.setAttribute('stroke', '#1b3550');
+  svg.append(base);
+
+  const poly = document.createElementNS(SVGNS, 'polyline');
+  poly.setAttribute('points', pts.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' '));
+  poly.setAttribute('fill', 'none');
+  poly.setAttribute('stroke', color);
+  poly.setAttribute('stroke-width', '1.6');
+  poly.setAttribute('stroke-linejoin', 'round');
+  svg.append(poly);
+
+  rows.forEach((r, i) => {
+    const dot = document.createElementNS(SVGNS, 'circle');
+    dot.setAttribute('cx', pts[i][0].toFixed(1));
+    dot.setAttribute('cy', pts[i][1].toFixed(1));
+    dot.setAttribute('r', '2.6');
+    dot.setAttribute('fill', r.pass ? '#4fd1a5' : '#ff7b7b');
+    svg.append(dot);
+  });
+
+  wrap.append(svg);
+  wrap.append(el('div', 'spark-last', fmt(vals[vals.length - 1])));
+  return wrap;
+}
+
+function renderTrend(history) {
+  const box = $('evalTrend');
+  box.replaceChildren();
+  if (!history.length) {
+    box.append(el('div', 'empty', '还没有历史。跑几次体检就能看到趋势。'));
+    return;
+  }
+  box.append(spark(history, (r) => r.passRate, { label: '通过率', color: '#4aa8ff', fmt: (v) => `${(v * 100).toFixed(0)}%` }));
+  box.append(spark(history, (r) => r.bootTokens, { label: '常驻 token', color: '#7fd6ff', fmt: (v) => `${v}` }));
+  box.append(spark(history, (r) => r.p95, { label: '召回 p95 (ms)', color: '#f0b45f', fmt: (v) => `${v}ms` }));
+}
+
+function renderEval(report, ctx = {}) {
   const box = $('evalResult');
   box.replaceChildren();
 
   const head = el('div', 'eval-head');
   head.append(el('div', `eval-score ${report.pass ? 'pass' : 'fail'}`, `${(report.summary.passRate * 100).toFixed(0)}%`));
-  head.append(el('div', '', `${report.pass ? 'PASS' : 'FAIL'} · ${mode} · 已判 ${report.summary.decided} 条，未判 ${report.summary.undecided} 条`));
-  head.append(el('div', '', `常驻 ${report.budget.bootTokens} token · 召回 p95 ${report.latency.p95}ms`));
+  head.append(el('div', '', `${report.pass ? 'PASS' : 'FAIL'} · ${report.mode} · 已判 ${report.summary.decided} 条，未判 ${report.summary.undecided} 条`));
   box.append(head);
+
+  const g = report.gates || {};
+  const th = report.thresholds || { passRate: 0.85 };
+  const chips = [
+    ['有判定', g.decided, `${report.summary.decided} 条`],
+    [`通过率 ≥ ${(th.passRate * 100).toFixed(0)}%`, g.passRate, `${(report.summary.passRate * 100).toFixed(1)}%`],
+    [`常驻 ≤ ${report.budget.limit}`, g.bootTokens, `${report.budget.bootTokens} token`],
+    [`p95 ≤ ${report.latency.limit}ms`, g.latency, `${report.latency.p95}ms`],
+    ['旧事实泄漏 = 0', g.superseded, `${report.supersededViolations} 条`],
+  ];
+  const gates = el('div', 'gates');
+  for (const [name, ok, val] of chips) {
+    const c = el('div', `gate ${ok ? 'ok' : 'bad'}`);
+    c.append(el('span', '', ok ? '✔' : '✘'));
+    c.append(el('span', '', name));
+    c.append(el('span', 'gv', val));
+    gates.append(c);
+  }
+  box.append(gates);
 
   if (report.supersededViolations) {
     box.append(el('div', 'banner', `旧事实泄漏 ${report.supersededViolations} 条 —— 硬性失败`));
@@ -372,9 +486,9 @@ function switchView(view, { syncHash = true } = {}) {
   for (const v of document.querySelectorAll('.view')) v.classList.toggle('active', v.id === `view-${view}`);
   if (syncHash) history.replaceState(null, '', `#${view}`);
   if (view === 'memory') loadMemory($('memorySearch').value.trim(), $('tierFilter').value);
-  if (view === 'eval' && !state.evalRan) {
-    state.evalRan = true;
-    runEval();
+  if (view === 'eval' && !state.evalLoaded) {
+    state.evalLoaded = true;
+    loadEvalPage();
   }
 }
 
@@ -417,7 +531,8 @@ $('memorySearch').addEventListener('input', () => {
   searchTimer = setTimeout(() => loadMemory($('memorySearch').value.trim(), $('tierFilter').value), 250);
 });
 $('tierFilter').addEventListener('change', () => loadMemory($('memorySearch').value.trim(), $('tierFilter').value));
-$('runEval').addEventListener('click', runEval);
+$('runEval').addEventListener('click', () => runEval(false));
+$('setBaseline').addEventListener('click', () => runEval(true));
 
 // ---------------- 巩固 / 急停 ----------------
 

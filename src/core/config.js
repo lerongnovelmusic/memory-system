@@ -90,6 +90,11 @@ export const DEFAULT_CONFIG = {
 
   eval: {
     overallPass: 0.85,
+    thresholds: {
+      passRate: 0.85,
+      bootTokens: 4500, // 常驻上下文超过这个数，就算语义全对也判 FAIL
+      recallP95Ms: 400, // 召回 p95 延迟上限
+    },
   },
 };
 

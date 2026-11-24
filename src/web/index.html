@@ -82,8 +82,11 @@
           <option value="full">full · 真回答 + 判分</option>
         </select>
         <button id="runEval" class="primary">跑一次体检</button>
+        <button id="setBaseline" class="ghost">跑一次并设为基线</button>
         <span id="evalHint" class="hint">dry 不生成回答，几秒钟；full 需要接模型。</span>
       </div>
+      <div id="evalBaseline" class="eval-baseline"></div>
+      <div id="evalTrend" class="eval-trend"></div>
       <div id="evalResult" class="eval-result">
         <div class="empty">还没跑。点上面的按钮。</div>
       </div>

@@ -29,9 +29,9 @@ export function loadProbes(dir) {
   return out;
 }
 
-export async function runEval({ engine, llm = null, probes, mode = 'dry', now = Date.now() }) {
+export async function runEval({ engine, llm = null, probes, mode = 'dry', now = Date.now(), baseline = null }) {
   const boot = engine.boot({ now });
-  const budgetLimit = 4500;
+  const th = { ...{ passRate: 0.85, bootTokens: 4500, recallP95Ms: 400 }, ...(engine.cfg.eval?.thresholds || {}) };
   const results = [];
   const latencies = [];
 
@@ -101,12 +101,21 @@ export async function runEval({ engine, llm = null, probes, mode = 'dry', now = 
     mode,
     summary,
     supersededViolations,
-    budget: { bootTokens: boot.tokens, limit: budgetLimit, ok: boot.tokens <= budgetLimit, sections: boot.sections },
+    budget: { bootTokens: boot.tokens, limit: th.bootTokens, ok: boot.tokens <= th.bootTokens, sections: boot.sections },
     warnings: boot.warnings,
-    latency: { p50: median(sortedLat), p95: Number(p95.toFixed(1)) },
-    pass: summary.decided > 0 && summary.passRate >= engine.cfg.eval.overallPass && supersededViolations === 0,
+    latency: { p50: median(sortedLat), p95: Number(p95.toFixed(1)), limit: th.recallP95Ms, ok: p95 <= th.recallP95Ms },
+    gates: {
+      decided: summary.decided > 0,
+      passRate: summary.passRate >= th.passRate,
+      bootTokens: boot.tokens <= th.bootTokens,
+      latency: p95 <= th.recallP95Ms,
+      superseded: supersededViolations === 0,
+    },
+    thresholds: th,
     results,
   };
+  report.pass = Object.values(report.gates).every(Boolean);
+  report.diff = baseline ? diffBaseline(report, baseline) : null;
   return report;
 }
 
@@ -132,4 +141,47 @@ export function diffBaseline(report, baseline) {
     improvements,
     message: regressions.length ? `回归 ${regressions.length} 条` : '无回归',
   };
+}
+
+// ---------- 基线 / 历史 ----------
+
+export function readHistory(store) {
+  return store.readJsonl('eval/history.jsonl');
+}
+
+/** 只存趋势需要的字段，报告本体另外落盘。 */
+export function appendHistory(store, report) {
+  const row = {
+    at: report.at,
+    mode: report.mode,
+    pass: report.pass,
+    passRate: report.summary.passRate,
+    decided: report.summary.decided,
+    bootTokens: report.budget.bootTokens,
+    p95: report.latency.p95,
+    violations: report.supersededViolations,
+  };
+  const rows = [...readHistory(store), row].slice(-300);
+  store.writeJsonl('eval/history.jsonl', rows);
+  store.writeJson('eval/last.json', report);
+  store.writeJson(`eval/report-${new Date(report.at).toISOString().replace(/[:.]/g, '-')}.json`, report);
+  return rows;
+}
+
+export function readLast(store) {
+  return store.readJson('eval/last.json', null);
+}
+
+export function saveBaseline(store, report) {
+  store.writeJson('eval/baseline.json', report);
+  return report;
+}
+
+export function loadBaseline(store) {
+  return store.readJson('eval/baseline.json', null);
+}
+
+export function baselineSummary(baseline) {
+  if (!baseline) return null;
+  return { at: baseline.at, mode: baseline.mode, pass: baseline.pass, passRate: baseline.summary.passRate };
 }

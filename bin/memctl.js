@@ -8,7 +8,7 @@ import process from 'node:process';
 import { Engine } from '../src/core/engine.js';
 import { createHeuristicLLM } from '../src/llm/stub.js';
 import { createOpenAILLM } from '../src/llm/openai.js';
-import { loadProbes, runEval, diffBaseline } from '../src/core/eval.js';
+import { loadProbes, runEval, diffBaseline, appendHistory, loadBaseline, saveBaseline } from '../src/core/eval.js';
 import { estimateTokens } from '../src/core/token.js';
 import { ensureEmbeddings, readMeta } from '../src/core/embeddings.js';
 
@@ -233,15 +233,9 @@ const commands = {
       console.error('没有探针：请在 probes/*.jsonl 里写探针');
       process.exit(1);
     }
-    const report = await runEval({ engine, llm: mode === 'full' ? engine.llm : null, probes, mode });
-    const outDir = path.join(engine.root, 'eval');
-    fs.mkdirSync(outDir, { recursive: true });
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    fs.writeFileSync(path.join(outDir, `report-${stamp}.json`), JSON.stringify(report, null, 2));
-
-    const baselinePath = path.join(engine.root, 'eval', 'baseline.json');
-    const baseline = fs.existsSync(baselinePath) ? JSON.parse(fs.readFileSync(baselinePath, 'utf8')) : null;
-    const diff = diffBaseline(report, baseline);
+    const report = await runEval({ engine, llm: mode === 'full' ? engine.llm : null, probes, mode, baseline: loadBaseline(engine.store) });
+    appendHistory(engine.store, report);
+    const diff = report.diff || diffBaseline(report, null);
 
     console.log(`模式 ${mode} · 通过率 ${(report.summary.passRate * 100).toFixed(1)}% · ${report.pass ? 'PASS' : 'FAIL'}`);
     for (const [cat, v] of Object.entries(report.summary.byCat)) {
@@ -249,12 +243,13 @@ const commands = {
       console.log(`  ${cat.padEnd(14)} ${String(v.pass).padStart(2)}/${v.pass + v.fail}  ${rate}   未判 ${v.unknown}`);
     }
     if (report.summary.undecided) console.log(`  未判 ${report.summary.undecided} 条（dry 模式只判检索层）`);
+    for (const [k, ok] of Object.entries(report.gates)) console.log(`  闸门 ${k.padEnd(12)} ${ok ? '✔' : '✘'}`);
     console.log(`  启动上下文 ${report.budget.bootTokens} token（上限 ${report.budget.limit}）`);
-    console.log(`  召回 p95 ${report.latency.p95}ms`);
+    console.log(`  召回 p95 ${report.latency.p95}ms（上限 ${report.latency.limit}）`);
     if (report.supersededViolations) console.log(`  !! 旧事实泄漏 ${report.supersededViolations} 条 —— 硬性失败`);
     if (diff.regressions.length) console.log(`  回归：${diff.regressions.map((r) => r.id).join(', ')}`);
     if (args['set-baseline'] && report.pass) {
-      fs.writeFileSync(baselinePath, JSON.stringify(report, null, 2));
+      saveBaseline(engine.store, report);
       console.log('  已锁定基线');
     }
   },

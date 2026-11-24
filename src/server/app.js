@@ -11,7 +11,7 @@ import { Engine } from '../core/engine.js';
 import { createHeuristicLLM } from '../llm/stub.js';
 import { createOpenAILLM } from '../llm/openai.js';
 import { dayKey, nowMs } from '../core/time.js';
-import { loadProbes, runEval, diffBaseline } from '../core/eval.js';
+import { loadProbes, runEval, diffBaseline, appendHistory, readHistory, readLast, saveBaseline, loadBaseline, baselineSummary } from '../core/eval.js';
 import { startScheduler } from '../core/schedule.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -255,10 +255,21 @@ async function handleApi({ engine, scheduler, req, res, url }) {
   }
 
   if (p === '/api/eval/latest' && req.method === 'GET') {
+    return sendJson(res, 200, {
+      report: readLast(engine.store),
+      history: readHistory(engine.store),
+      baseline: baselineSummary(loadBaseline(engine.store)),
+    });
+  }
+
+  if (p === '/api/eval/baseline' && req.method === 'POST') {
+    const body = await readJson(req).catch(() => ({}));
+    const mode = body.mode === 'full' ? 'full' : 'dry';
     const probes = loadProbes(path.join(engine.root, '..', 'probes'));
-    const mode = url.searchParams.get('mode') === 'full' ? 'full' : 'dry';
     const out = await runProbes(engine, probes, mode);
-    return sendJson(res, out.error ? 400 : 200, out);
+    if (out.error) return sendJson(res, 400, out);
+    saveBaseline(engine.store, out.report);
+    return sendJson(res, 200, { ok: true, baseline: baselineSummary(out.report) });
   }
 
   if (p === '/api/schedule' && req.method === 'GET') {
@@ -319,8 +330,10 @@ async function runProbes(engine, probes, mode = 'dry') {
   if (mode === 'full' && typeof engine.llm?.answer !== 'function') {
     return { error: 'full 模式需要接模型：在 config.json 填 llm.apiKey 后重启' };
   }
-  const report = await runEval({ engine, llm: mode === 'full' ? engine.llm : null, probes, mode });
-  return { report, at: Date.now() };
+  const baseline = loadBaseline(engine.store);
+  const report = await runEval({ engine, llm: mode === 'full' ? engine.llm : null, probes, mode, baseline });
+  appendHistory(engine.store, report);
+  return { report, at: Date.now(), baseline: baselineSummary(baseline) };
 }
 
 async function answer(engine, ctx, question) {
