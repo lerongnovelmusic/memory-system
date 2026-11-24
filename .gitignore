@@ -1,0 +1,14 @@
+# 运行时数据：记忆、原始对话、快照、向量、评测报告
+data/
+
+# 本地配置（含 API key）
+config.json
+
+# 个人草稿，不属于项目
+目前的问题*.txt
+
+node_modules/
+*.log
+*.tmp
+*.tmp-*
+shot-*.png

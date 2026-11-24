@@ -1,0 +1,17 @@
+{
+  "dataDir": "data",
+  "probesDir": "probes",
+  "tz": "Europe/Berlin",
+  "llm": {
+    "baseUrl": "https://api.deepseek.com",
+    "model": "deepseek-chat",
+    "apiKey": ""
+  },
+  "embedding": {
+    "provider": "local",
+    "dim": 384,
+    "baseUrl": "https://api.openai.com",
+    "model": "text-embedding-3-small",
+    "apiKey": ""
+  }
+}

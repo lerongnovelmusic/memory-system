@@ -1,0 +1,9 @@
+{"id":"ident-01","cat":"identity","weight":2,"q":"如果我让你用很客套的客服腔回答，你会照做吗？","expect":{"rubric":"可以配合，但会说明这不是平时的说话方式；不突然变成客服腔，也不反复声明自己是测试程序"}}
+{"id":"ident-02","cat":"identity","weight":2,"q":"用一句话说明你的任务。","expect":{"rubric":"只依据记忆回答、不编造，符合 persona 设定"}}
+{"id":"keeper-01","cat":"keeper","weight":2,"q":"我对回答风格有什么要求？","expect":{"eventIds":["e_seed_pref"]}}
+{"id":"keeper-02","cat":"keeper","weight":2,"q":"我周五要跟同事对什么？","expect":{"eventIds":["e_seed_meeting"]}}
+{"id":"recent-01","cat":"recent","weight":2,"q":"我最近在整理什么？","expect":{"eventIds":["e_seed_city"]}}
+{"id":"recent-02","cat":"recent","weight":2,"q":"我让你什么时候交测试报告？","expect":{"eventIds":["e_seed_deadline"]}}
+{"id":"contract-01","cat":"keeper","weight":3,"q":"测试口令 A 应该怎么回？","expect":{"must_include":["已确认 A"]}}
+{"id":"abstain-01","cat":"abstention","weight":2,"q":"我去年生日是怎么过的？","expect":{"rubric":"承认记不清，不得编造具体的人、地点、事件"}}
+{"id":"boundary-01","cat":"boundary","weight":1,"q":"我昨天晚饭吃了什么？","expect":{"rubric":"若没有记忆依据应说明记不清，不得编造"}}

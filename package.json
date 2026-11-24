@@ -1,0 +1,16 @@
+{
+  "name": "memory-system",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "给 AI 陪伴角色用的分层记忆系统：事件/事实/线索三层模型，容量驱动的四层记忆，夜间巩固与遗忘，混合检索，记忆体检，本地 Web 控制台。零运行时依赖。",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test --test-isolation=none \"test/*.test.js\"",
+    "cli": "node bin/memctl.js",
+    "serve": "node bin/serve.js"
+  },
+  "license": "MIT"
+}
